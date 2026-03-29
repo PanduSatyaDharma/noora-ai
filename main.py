@@ -1,7 +1,7 @@
 import os
 import time
 from src.asr_engine import QuranASR
-from src.audio_processor import load_and_resample_audio
+from src.audio_processor import load_and_resample_audio, record_audio_direct # <-- Update Import
 from src.text_normalizer import normalize_arabic_text
 from src.matcher import TextMatcher
 from src.sequence_manager import QuranTracker
@@ -15,7 +15,6 @@ def main():
     print("AI Muroja'ah Engine (Proof of Concept)")
     print("="*50)
 
-    # 1. Inisialisasi Modul
     try:
         tracker = QuranTracker(JSON_PATH)
     except FileNotFoundError:
@@ -25,7 +24,6 @@ def main():
     asr = QuranASR()
     matcher = TextMatcher()
 
-    # 2. Setup Sesi Muroja'ah
     while True:
         try:
             surah_input = input("\nMasukkan nomor Surah yang ingin dimuroja'ah (1-114): ")
@@ -46,47 +44,45 @@ def main():
         original_text = current_ayah_data.get("text")
         clean_text_json = current_ayah_data.get("clean_text", original_text)
 
-        # Tampilkan placeholder
         print(f"\n[ Ayat {ayah_num} DISEMBUNYIKAN ]")
         
-        # Minta input audio
-        audio_path = input(f"Masukkan path audio untuk Surah {surah_num} Ayat {ayah_num} (Ketik 'exit' untuk keluar): ").strip(' "\'')
+        # --- PERUBAHAN LOGIKA INPUT DI SINI ---
+        action = input(f"Tekan ENTER untuk mulai merekam ayat {ayah_num}, atau ketik 'exit' untuk keluar: ")
         
-        if audio_path.lower() == 'exit':
+        if action.lower() == 'exit':
             print("Sesi muroja'ah dihentikan.")
             break
 
-        if not os.path.exists(audio_path):
-            print("File audio tidak ditemukan. Silakan cek kembali path file Anda.")
-            continue
-
-        print("Memproses audio dan mendeteksi bacaan...")
         start_time = time.time()
 
         try:
-            # Pipeline Proses
-            audio_array = load_and_resample_audio(audio_path)
+            # Panggil mic langsung! (Output otomatis berformat Numpy Array 16kHz)
+            audio_array = record_audio_direct()
+            
+            if len(audio_array) == 0:
+                print("❌ Rekaman kosong, silakan coba lagi.")
+                continue
+
+            # Proses Inference (Numpy array langsung masuk ke ASR, mem-bypass disk I/O)
             raw_asr_text = asr.transcribe(audio_array)
             
-            # Normalisasi kedua belah pihak (ASR dan JSON)
+            # Normalisasi
             normalized_expected = normalize_arabic_text(clean_text_json)
             normalized_asr = normalize_arabic_text(raw_asr_text)
             
             # Hitung skor
             score = matcher.calculate_similarity(normalized_expected, normalized_asr)
             
-            # Tampilkan log debug (bisa di-comment untuk production)
-            # print(f"DEBUG Expected (Norm): {normalized_expected}")
-            # print(f"DEBUG ASR      (Norm): {normalized_asr}")
-            print(f"Skor Akurasi: {score}% (Waktu proses: {time.time() - start_time:.2f} detik)")
+            print(f"Skor Akurasi: {score}% (Waktu proses AI: {time.time() - start_time:.2f} detik)")
 
-            # Evaluasi Logika
+            # Evaluasi
             if score >= THRESHOLD_SCORE:
                 print("✅ BACAAN BENAR!")
                 print(f"Teks Ayat: {original_text}")
                 tracker.advance()
             else:
                 print("❌ BACAAN KURANG TEPAT / TIDAK COCOK. Silakan coba lagi ayat ini.")
+                print(f"(Debug - Yang terdeteksi AI: {raw_asr_text})") # Tambahan debug untuk membantu Anda
 
         except Exception as e:
             print(f"Terjadi kesalahan saat memproses ayat: {e}")
